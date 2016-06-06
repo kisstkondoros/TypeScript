@@ -287,7 +287,7 @@ namespace ts {
         };
     }
 
-    export function resolveModuleName(moduleName: string, containingFile: string, compilerOptions: CompilerOptions, host: ModuleResolutionHost): ResolvedModuleWithFailedLookupLocations {
+    export function resolveModuleName(moduleName: string, containingFile: string, compilerOptions: CompilerOptions, host: ModuleResolutionHost, loadJs?: boolean): ResolvedModuleWithFailedLookupLocations {
         const traceEnabled = isTraceEnabled(compilerOptions, host);
         if (traceEnabled) {
             trace(host, Diagnostics.Resolving_module_0_from_1, moduleName, containingFile);
@@ -309,7 +309,7 @@ namespace ts {
         let result: ResolvedModuleWithFailedLookupLocations;
         switch (moduleResolution) {
             case ModuleResolutionKind.NodeJs:
-                result = nodeModuleNameResolver(moduleName, containingFile, compilerOptions, host);
+                result = nodeModuleNameResolver(moduleName, containingFile, compilerOptions, host, loadJs);
                 break;
             case ModuleResolutionKind.Classic:
                 result = classicNameResolver(moduleName, containingFile, compilerOptions, host);
@@ -560,7 +560,7 @@ namespace ts {
         }
     }
 
-    export function nodeModuleNameResolver(moduleName: string, containingFile: string, compilerOptions: CompilerOptions, host: ModuleResolutionHost): ResolvedModuleWithFailedLookupLocations {
+    export function nodeModuleNameResolver(moduleName: string, containingFile: string, compilerOptions: CompilerOptions, host: ModuleResolutionHost, loadJs?: boolean): ResolvedModuleWithFailedLookupLocations {
         const containingDirectory = getDirectoryPath(containingFile);
         const supportedExtensions = getSupportedExtensions(compilerOptions);
         const traceEnabled = isTraceEnabled(compilerOptions, host);
@@ -576,7 +576,7 @@ namespace ts {
                 if (traceEnabled) {
                     trace(host, Diagnostics.Loading_module_0_from_node_modules_folder, moduleName);
                 }
-                resolvedFileName = loadModuleFromNodeModules(moduleName, containingDirectory, failedLookupLocations, state);
+                resolvedFileName = loadModuleFromNodeModules(moduleName, containingDirectory, failedLookupLocations, state, loadJs);
                 isExternalLibraryImport = resolvedFileName !== undefined;
             }
             else {
@@ -680,29 +680,30 @@ namespace ts {
         return loadModuleFromFile(combinePaths(candidate, "index"), extensions, failedLookupLocation, !directoryExists, state);
     }
 
-    function loadModuleFromNodeModulesFolder(moduleName: string, directory: string, failedLookupLocations: string[], state: ModuleResolutionState): string {
+    function loadModuleFromNodeModulesFolder(moduleName: string, directory: string, failedLookupLocations: string[], state: ModuleResolutionState, loadJS?: boolean): string {
         const nodeModulesFolder = combinePaths(directory, "node_modules");
         const nodeModulesFolderExists = directoryProbablyExists(nodeModulesFolder, state.host);
         const candidate = normalizePath(combinePaths(nodeModulesFolder, moduleName));
         // Load only typescript files irrespective of allowJs option if loading from node modules
-        let result = loadModuleFromFile(candidate, supportedTypeScriptExtensions, failedLookupLocations, !nodeModulesFolderExists, state);
+        const extensionsSearched = loadJS ? supportedJavascriptExtensions : supportedTypeScriptExtensions;
+        let result = loadModuleFromFile(candidate, extensionsSearched, failedLookupLocations, !nodeModulesFolderExists, state);
         if (result) {
             return result;
         }
-        result = loadNodeModuleFromDirectory(supportedTypeScriptExtensions, candidate, failedLookupLocations, !nodeModulesFolderExists, state);
+        result = loadNodeModuleFromDirectory(extensionsSearched, candidate, failedLookupLocations, !nodeModulesFolderExists, state);
         if (result) {
             return result;
         }
     }
 
-    function loadModuleFromNodeModules(moduleName: string, directory: string, failedLookupLocations: string[], state: ModuleResolutionState): string {
+    function loadModuleFromNodeModules(moduleName: string, directory: string, failedLookupLocations: string[], state: ModuleResolutionState, loadJS?: boolean): string {
         directory = normalizeSlashes(directory);
         while (true) {
             const baseName = getBaseFileName(directory);
             if (baseName !== "node_modules") {
                 const result =
                     // first: try to load module as-is
-                    loadModuleFromNodeModulesFolder(moduleName, directory, failedLookupLocations, state) ||
+                    loadModuleFromNodeModulesFolder(moduleName, directory, failedLookupLocations, state, loadJS) ||
                     // second: try to load module from the scope '@types'
                     loadModuleFromNodeModulesFolder(combinePaths("@types", moduleName), directory, failedLookupLocations, state);
                 if (result) {
@@ -892,6 +893,10 @@ namespace ts {
             return getDirectoryPath(normalizePath(sys.getExecutingFilePath()));
         }
 
+        function loadExtension(name: string): any {
+            return sys.loadExtension(name);
+        }
+
         const newLine = getNewLineCharacter(options);
         const realpath = sys.realpath && ((path: string) => sys.realpath(path));
 
@@ -909,7 +914,8 @@ namespace ts {
             readFile: fileName => sys.readFile(fileName),
             trace: (s: string) => sys.write(s + newLine),
             directoryExists: directoryName => sys.directoryExists(directoryName),
-            realpath
+            realpath,
+            loadExtension
         };
     }
 
@@ -1099,7 +1105,73 @@ namespace ts {
 
         programTime += new Date().getTime() - start;
 
+        const compilerExtensions = collectCompilerExtensions();
+
         return program;
+
+        function collectCompilerExtensions(): ExtensionCollectionMap {
+            const extOptions = options.extensions;
+            const extensionNames = (extOptions instanceof Array) ? extOptions : getKeys(extOptions);
+            return groupBy(flatten(map(filter(map(extensionNames, name => {
+                let result: any;
+                let error: any;
+                if (host.loadExtension) {
+                    const resolved = resolveModuleName(combinePaths('@ts', name), combinePaths(currentDirectory, 'tsconfig.json'), options, host, /*loadJs*/true).resolvedModule;
+                    if (resolved) {
+                        try {
+                            result = host.loadExtension(resolved.resolvedFileName);
+                        }
+                        catch (e) {
+                            error = e;
+                        }
+                    }
+                    else {
+                        error = new Error(`Host could not locate extension '${name}'.`);
+                    }
+                }
+                else {
+                    error = new Error('Not implemented.'); // TODO (weswig): Probably a less succinct error would be nice
+                }
+                if (error) {
+                    programDiagnostics.add(createCompilerDiagnostic(Diagnostics.Extension_loading_failed_with_error_0, error));
+                }
+                return {name, result, error};
+            }), res => !res.error), res => {
+                if (res.result) {
+                    return reduceProperties(res.result, (aggregate: Extension[], potentialExtension: any, key: string) => {
+                        const annotatedKind = potentialExtension.__tsCompilerExtensionKind;
+                        if (typeof annotatedKind === 'number') {
+                            const ext: ExtensionBase = {
+                                name: key !== 'default' ? `${res.name}[${key}]` : res.name,
+                                args: extensionNames === extOptions ? undefined : (extOptions as Map<any>)[res.name],
+                                kind: annotatedKind as ExtensionKind
+                            };
+                            switch (ext.kind) {
+                                case ExtensionKind.SemanticLint:
+                                case ExtensionKind.SyntacticLint:
+                                    if (typeof potentialExtension !== 'function') {
+                                        programDiagnostics.add(createCompilerDiagnostic(
+                                            Diagnostics.Extension_0_exported_member_1_has_extension_kind_2_but_was_type_3_when_type_4_was_expected,
+                                            res.name,
+                                            key,
+                                            (ts as any).ExtensionKind[annotatedKind],
+                                            typeof potentialExtension,
+                                            'function'
+                                        ));
+                                        return;
+                                    }
+                                    (ext as (SemanticLintExtension | SyntacticLintExtension)).initializer = potentialExtension;
+                            }
+                            aggregate.push(ext as Extension);
+                        }
+                        return aggregate;
+                    }, []);
+                }
+                else {
+                    return [];
+                }
+            })), elem => elem.kind) || {};
+        }
 
         function getCommonSourceDirectory() {
             if (typeof commonSourceDirectory === "undefined") {
@@ -1396,7 +1468,77 @@ namespace ts {
             }
         }
 
+        /**
+         * ExtensionKind.SyntacticLint or ExtensionKind.SemanticLint only
+         */
+        function performLintPassOnFile(sourceFile: SourceFile, kind: ExtensionKind): Diagnostic[] | undefined {
+            const lints = compilerExtensions[kind];
+            if (!lints || !lints.length) {
+                return;
+            }
+            type UniqueLint = {name: string, visit: LintWalker, accepted: boolean};
+            const initializedLints = new Array<UniqueLint>(lints.length);
+            const needsReset: boolean[] = new Array(initializedLints.length);
+            const diagnostics: Diagnostic[] = [];
+            let activeLint: UniqueLint;
+            let parent: Node | undefined = undefined;
+            for (let i = 0; i<lints.length; i++) {
+                if (kind === ExtensionKind.SemanticLint) {
+                    initializedLints[i] = {name: lints[i].name, visit: lints[i].initializer(ts, getTypeChecker(), lints[i].args), accepted: true};
+                }
+                else {
+                    initializedLints[i] = {name: lints[i].name, visit: lints[i].initializer(ts, lints[i].args), accepted: true};
+                }
+            }
+            
+            visitNode(sourceFile);
+
+            return diagnostics;
+            
+            function visitNode(node: Node) {
+                let oneAccepted = false;
+                for (let i = 0; i<initializedLints.length; i++) {
+                    if (initializedLints[i].accepted) {
+                        activeLint = initializedLints[i];
+                        activeLint.accepted = false;
+                        node.parent = parent;
+                        activeLint.visit(node, accept, error);
+                        if (activeLint.accepted) {
+                            oneAccepted = true;
+                        }
+                        else {
+                            needsReset[i] = true;
+                        }
+                    }
+                }
+                parent = node;
+                if (oneAccepted) {
+                    forEachChild(node, visitNode);
+                }
+                for (let i = 0; i<initializedLints.length; i++) {
+                    if (needsReset[i]) {
+                        initializedLints[i].accepted = true;
+                        needsReset[i] = false;
+                    }
+                }
+            }
+
+            function accept() {
+                activeLint.accepted = true;
+            }
+
+            function error(err: string, node: Node) {
+                diagnostics.push(createDiagnosticForNode(node, Diagnostics._0_Colon_1, activeLint.name, err));
+            }
+        }
+
         function getSyntacticDiagnosticsForFile(sourceFile: SourceFile, cancellationToken: CancellationToken): Diagnostic[] {
+            if (!(sourceFile.isDeclarationFile || sourceFile.externalModuleIndicator)) {
+                const lintDiagnostics = performLintPassOnFile(sourceFile, ExtensionKind.SyntacticLint);
+                if (lintDiagnostics && lintDiagnostics.length) {
+                    return sourceFile.parseDiagnostics.concat(lintDiagnostics);
+                }
+            }
             return sourceFile.parseDiagnostics;
         }
 
@@ -1437,8 +1579,9 @@ namespace ts {
                     typeChecker.getDiagnostics(sourceFile, cancellationToken);
                 const fileProcessingDiagnosticsInFile = fileProcessingDiagnostics.getDiagnostics(sourceFile.fileName);
                 const programDiagnosticsInFile = programDiagnostics.getDiagnostics(sourceFile.fileName);
+                const lintDiagnostics = !(sourceFile.isDeclarationFile || sourceFile.externalModuleIndicator) ? (performLintPassOnFile(sourceFile, ExtensionKind.SemanticLint) || []) : [];
 
-                return bindDiagnostics.concat(checkDiagnostics).concat(fileProcessingDiagnosticsInFile).concat(programDiagnosticsInFile);
+                return bindDiagnostics.concat(checkDiagnostics).concat(fileProcessingDiagnosticsInFile).concat(programDiagnosticsInFile).concat(lintDiagnostics);
             });
         }
 

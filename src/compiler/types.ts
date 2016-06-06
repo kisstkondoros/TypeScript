@@ -2469,6 +2469,7 @@ namespace ts {
         Warning,
         Error,
         Message,
+        Extension,
     }
 
     export enum ModuleResolutionKind {
@@ -2550,6 +2551,7 @@ namespace ts {
         typesSearchPaths?: string[];
         /*@internal*/ version?: boolean;
         /*@internal*/ watch?: boolean;
+        extensions?: string[]|Map<any>;
 
         [option: string]: CompilerOptionsValue | undefined;
     }
@@ -2846,6 +2848,45 @@ namespace ts {
         failedLookupLocations: string[];
     }
 
+    export type LintErrorMethod = (err: string, span: Node) => void;
+    export type LintAcceptMethod = () => void;
+
+    /*
+    * Walkers call accept to decend into the node's children
+    * Walkers call error to add errors to the output.
+    */
+    export type LintWalker = (node: Node, accept: LintAcceptMethod, error: LintErrorMethod) => void;
+
+    export type SyntacticLintConfigurator = (typescript: typeof ts, ...anything: any[]) => LintWalker;
+    export type SemanticLintConfigurator = (typescript: typeof ts, checker: TypeChecker, ...anything: any[]) => LintWalker;
+
+    export const enum ExtensionKind {
+        SyntacticLint,
+        SemanticLint
+    }
+
+    export interface ExtensionCollectionMap {
+        0?: SyntacticLintExtension[]
+        1?: SemanticLintExtension[]
+        [index: number]: (SyntacticLintExtension | SemanticLintExtension)[]
+    }
+
+    export interface ExtensionBase {
+        name: string;
+        args: any;
+        kind: ExtensionKind;
+    }
+
+    export interface SyntacticLintExtension extends ExtensionBase {
+        initializer: SyntacticLintConfigurator;
+    }
+
+    export interface SemanticLintExtension extends ExtensionBase {
+        initializer: SemanticLintConfigurator;
+    }
+
+    export type Extension = SyntacticLintExtension | SemanticLintExtension;
+
     export interface CompilerHost extends ModuleResolutionHost {
         getSourceFile(fileName: string, languageVersion: ScriptTarget, onError?: (message: string) => void): SourceFile;
         getSourceFileByPath?(fileName: string, path: Path, languageVersion: ScriptTarget, onError?: (message: string) => void): SourceFile;
@@ -2871,6 +2912,14 @@ namespace ts {
          * This method is a companion for 'resolveModuleNames' and is used to resolve 'types' references to actual type declaration files
          */
         resolveTypeReferenceDirectives?(typeReferenceDirectiveNames: string[], containingFile: string): ResolvedTypeReferenceDirective[];
+        
+        /**
+         * Delegates the loading of compiler extensions to the compiler host.
+         * The function should return the result of executing the code of an extension
+         * - its exported members. These members will be searched for objects who have been decorated with
+         * specific flags.
+         */
+        loadExtension?(extension: string): any;
     }
 
     export interface TextSpan {

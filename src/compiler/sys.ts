@@ -31,6 +31,7 @@ namespace ts {
         getMemoryUsage?(): number;
         exit(exitCode?: number): void;
         realpath?(path: string): string;
+        loadExtension(name: string): any;
     }
 
     export interface FileWatcher {
@@ -47,6 +48,7 @@ namespace ts {
     declare var process: any;
     declare var global: any;
     declare var __filename: string;
+    declare var __dirname: string;
     declare var Buffer: {
         new (str: string, encoding?: string): any;
     };
@@ -77,6 +79,7 @@ namespace ts {
         watchFile?(path: string, callback: FileWatcherCallback): FileWatcher;
         watchDirectory?(path: string, callback: DirectoryWatcherCallback, recursive?: boolean): FileWatcher;
         realpath(path: string): string;
+        loadExtension(name: string): any;
     };
 
     export var sys: System = (function () {
@@ -229,6 +232,9 @@ namespace ts {
                     }
                     catch (e) {
                     }
+                },
+                loadExtension(name) {
+                    throw new Error('Not implemented!'); // TODO (weswig): Implement extension loading for WScript
                 }
             };
         }
@@ -545,6 +551,9 @@ namespace ts {
                 },
                 realpath(path: string): string {
                     return _fs.realpathSync(path);
+                },
+                loadExtension(name) {
+                    return require(name);
                 }
             };
         }
@@ -577,7 +586,10 @@ namespace ts {
                 getDirectories: ChakraHost.getDirectories,
                 readDirectory: ChakraHost.readDirectory,
                 exit: ChakraHost.quit,
-                realpath
+                realpath,
+                loadExtension(name) {
+                    ChakraHost.loadExtension(name);
+                }
             };
         }
 
