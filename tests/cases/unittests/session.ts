@@ -21,7 +21,7 @@ namespace ts.server {
         readDirectory(): string[] { return []; },
         exit(): void { },
         setTimeout(callback, ms, ...args) { return 0; },
-        clearTimeout(timeoutId) { },
+        clearTimeout(timeoutId) { }
     };
     const mockLogger: Logger = {
         close(): void {},
