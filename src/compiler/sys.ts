@@ -31,7 +31,7 @@ namespace ts {
         getMemoryUsage?(): number;
         exit(exitCode?: number): void;
         realpath?(path: string): string;
-        loadExtension(name: string): any;
+        loadExtension?(name: string): any;
     }
 
     export interface FileWatcher {
@@ -232,9 +232,6 @@ namespace ts {
                     }
                     catch (e) {
                     }
-                },
-                loadExtension(name) {
-                    throw new Error('Not implemented!'); // TODO (weswig): Implement extension loading for WScript
                 }
             };
         }
@@ -586,10 +583,7 @@ namespace ts {
                 getDirectories: ChakraHost.getDirectories,
                 readDirectory: ChakraHost.readDirectory,
                 exit: ChakraHost.quit,
-                realpath,
-                loadExtension(name) {
-                    ChakraHost.loadExtension(name);
-                }
+                realpath
             };
         }
 

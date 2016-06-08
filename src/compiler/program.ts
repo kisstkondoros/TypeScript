@@ -894,7 +894,9 @@ namespace ts {
         }
 
         function loadExtension(name: string): any {
-            return sys.loadExtension(name);
+            if (sys.loadExtension) {
+                return sys.loadExtension(name);
+            }
         }
 
         const newLine = getNewLineCharacter(options);
@@ -1076,6 +1078,8 @@ namespace ts {
         // unconditionally set oldProgram to undefined to prevent it from being captured in closure
         oldProgram = undefined;
 
+        const compilerExtensions = collectCompilerExtensions();
+
         program = {
             getRootFileNames: () => rootNames,
             getSourceFile,
@@ -1098,14 +1102,15 @@ namespace ts {
             getSymbolCount: () => getDiagnosticsProducingTypeChecker().getSymbolCount(),
             getTypeCount: () => getDiagnosticsProducingTypeChecker().getTypeCount(),
             getFileProcessingDiagnostics: () => fileProcessingDiagnostics,
-            getResolvedTypeReferenceDirectives: () => resolvedTypeReferenceDirectives
+            getResolvedTypeReferenceDirectives: () => resolvedTypeReferenceDirectives,
+            getCompilerExtensions() {
+                return compilerExtensions;
+            }
         };
 
         verifyCompilerOptions();
 
         programTime += new Date().getTime() - start;
-
-        const compilerExtensions = collectCompilerExtensions();
 
         return program;
 
@@ -1116,7 +1121,8 @@ namespace ts {
                 let result: any;
                 let error: any;
                 if (host.loadExtension) {
-                    const resolved = resolveModuleName(combinePaths('@ts', name), combinePaths(currentDirectory, 'tsconfig.json'), options, host, /*loadJs*/true).resolvedModule;
+                    // TODO (weswig): @ts is taken on npm. Aquire it or use @tsc?
+                    const resolved = resolveModuleName(combinePaths("@ts", name), combinePaths(currentDirectory, "tsconfig.json"), options, host, /*loadJs*/true).resolvedModule;
                     if (resolved) {
                         try {
                             result = host.loadExtension(resolved.resolvedFileName);
@@ -1130,7 +1136,7 @@ namespace ts {
                     }
                 }
                 else {
-                    error = new Error('Not implemented.'); // TODO (weswig): Probably a less succinct error would be nice
+                    error = new Error("Extension loading not implemented in compiler host.");
                 }
                 if (error) {
                     programDiagnostics.add(createCompilerDiagnostic(Diagnostics.Extension_loading_failed_with_error_0, error));
@@ -1140,27 +1146,28 @@ namespace ts {
                 if (res.result) {
                     return reduceProperties(res.result, (aggregate: Extension[], potentialExtension: any, key: string) => {
                         const annotatedKind = potentialExtension.__tsCompilerExtensionKind;
-                        if (typeof annotatedKind === 'number') {
+                        if (typeof annotatedKind === "number") {
                             const ext: ExtensionBase = {
-                                name: key !== 'default' ? `${res.name}[${key}]` : res.name,
+                                name: key !== "default" ? `${res.name}[${key}]` : res.name,
                                 args: extensionNames === extOptions ? undefined : (extOptions as Map<any>)[res.name],
                                 kind: annotatedKind as ExtensionKind
                             };
                             switch (ext.kind) {
                                 case ExtensionKind.SemanticLint:
                                 case ExtensionKind.SyntacticLint:
-                                    if (typeof potentialExtension !== 'function') {
+                                case ExtensionKind.TypeProvider:
+                                    if (typeof potentialExtension !== "function") {
                                         programDiagnostics.add(createCompilerDiagnostic(
                                             Diagnostics.Extension_0_exported_member_1_has_extension_kind_2_but_was_type_3_when_type_4_was_expected,
                                             res.name,
                                             key,
                                             (ts as any).ExtensionKind[annotatedKind],
                                             typeof potentialExtension,
-                                            'function'
+                                            "function"
                                         ));
                                         return;
                                     }
-                                    (ext as (SemanticLintExtension | SyntacticLintExtension)).initializer = potentialExtension;
+                                    (ext as (SemanticLintExtension | SyntacticLintExtension | TypeProviderExtension)).ctor = potentialExtension;
                             }
                             aggregate.push(ext as Extension);
                         }
@@ -1476,33 +1483,33 @@ namespace ts {
             if (!lints || !lints.length) {
                 return;
             }
-            type UniqueLint = {name: string, visit: LintWalker, accepted: boolean};
+            type UniqueLint = {name: string, walker: LintWalker, accepted: boolean};
             const initializedLints = new Array<UniqueLint>(lints.length);
             const needsReset: boolean[] = new Array(initializedLints.length);
             const diagnostics: Diagnostic[] = [];
             let activeLint: UniqueLint;
             let parent: Node | undefined = undefined;
-            for (let i = 0; i<lints.length; i++) {
+            for (let i = 0; i < lints.length; i++) {
                 if (kind === ExtensionKind.SemanticLint) {
-                    initializedLints[i] = {name: lints[i].name, visit: lints[i].initializer(ts, getTypeChecker(), lints[i].args), accepted: true};
+                    initializedLints[i] = {name: lints[i].name, walker: new (lints[i].ctor as SemanticLintProviderStatic)(ts, getTypeChecker(), lints[i].args), accepted: true};
                 }
-                else {
-                    initializedLints[i] = {name: lints[i].name, visit: lints[i].initializer(ts, lints[i].args), accepted: true};
+                else if (kind === ExtensionKind.SyntacticLint) {
+                    initializedLints[i] = {name: lints[i].name, walker: new (lints[i].ctor as SyntacticLintProviderStatic)(ts, lints[i].args), accepted: true};
                 }
             }
-            
+
             visitNode(sourceFile);
 
             return diagnostics;
-            
+
             function visitNode(node: Node) {
                 let oneAccepted = false;
-                for (let i = 0; i<initializedLints.length; i++) {
+                for (let i = 0; i < initializedLints.length; i++) {
                     if (initializedLints[i].accepted) {
                         activeLint = initializedLints[i];
                         activeLint.accepted = false;
                         node.parent = parent;
-                        activeLint.visit(node, accept, error);
+                        activeLint.walker.visit(node, accept, error);
                         if (activeLint.accepted) {
                             oneAccepted = true;
                         }
@@ -1515,7 +1522,7 @@ namespace ts {
                 if (oneAccepted) {
                     forEachChild(node, visitNode);
                 }
-                for (let i = 0; i<initializedLints.length; i++) {
+                for (let i = 0; i < initializedLints.length; i++) {
                     if (needsReset[i]) {
                         initializedLints[i].accepted = true;
                         needsReset[i] = false;
@@ -1579,7 +1586,7 @@ namespace ts {
                     typeChecker.getDiagnostics(sourceFile, cancellationToken);
                 const fileProcessingDiagnosticsInFile = fileProcessingDiagnostics.getDiagnostics(sourceFile.fileName);
                 const programDiagnosticsInFile = programDiagnostics.getDiagnostics(sourceFile.fileName);
-                const lintDiagnostics = !(sourceFile.isDeclarationFile || sourceFile.externalModuleIndicator) ? (performLintPassOnFile(sourceFile, ExtensionKind.SemanticLint) || []) : [];
+                const lintDiagnostics = (!(sourceFile.isDeclarationFile || sourceFile.externalModuleIndicator)) ? (performLintPassOnFile(sourceFile, ExtensionKind.SemanticLint) || []) : [];
 
                 return bindDiagnostics.concat(checkDiagnostics).concat(fileProcessingDiagnosticsInFile).concat(programDiagnosticsInFile).concat(lintDiagnostics);
             });

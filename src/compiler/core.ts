@@ -155,7 +155,7 @@ namespace ts {
 
         return array1.concat(array2);
     }
-    
+
     export function flatten<T>(array1: T[][]): T[] {
         if (!array1 || !array1.length) return <any>array1;
         return [].concat(...array1);
@@ -174,7 +174,7 @@ namespace ts {
             ret[result].push(array[i]);
         }
         return ret;
-    } 
+    }
 
     export function deduplicate<T>(array: T[], areEqual?: (a: T, b: T) => boolean): T[] {
         let result: T[];

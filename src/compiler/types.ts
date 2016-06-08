@@ -1719,6 +1719,11 @@ namespace ts {
          */
         getTypeChecker(): TypeChecker;
 
+        /**
+         * Gets a map of loaded compiler extensions
+         */
+        getCompilerExtensions(): ExtensionCollectionMap;
+
         /* @internal */ getCommonSourceDirectory(): string;
 
         // For testing purposes only.  Should not be used by any other consumers (including the
@@ -1795,6 +1800,7 @@ namespace ts {
         getSourceFiles(): SourceFile[];
         getSourceFile(fileName: string): SourceFile;
         getResolvedTypeReferenceDirectives(): Map<ResolvedTypeReferenceDirective>;
+        getCompilerExtensions(): ExtensionCollectionMap;
     }
 
     export interface TypeChecker {
@@ -2551,7 +2557,7 @@ namespace ts {
         typesSearchPaths?: string[];
         /*@internal*/ version?: boolean;
         /*@internal*/ watch?: boolean;
-        extensions?: string[]|Map<any>;
+        extensions?: string[] | Map<any>;
 
         [option: string]: CompilerOptionsValue | undefined;
     }
@@ -2855,20 +2861,27 @@ namespace ts {
     * Walkers call accept to decend into the node's children
     * Walkers call error to add errors to the output.
     */
-    export type LintWalker = (node: Node, accept: LintAcceptMethod, error: LintErrorMethod) => void;
+    export interface LintWalker {
+        visit(node: Node, accept: LintAcceptMethod, error: LintErrorMethod): void;
+    }
 
-    export type SyntacticLintConfigurator = (typescript: typeof ts, ...anything: any[]) => LintWalker;
-    export type SemanticLintConfigurator = (typescript: typeof ts, checker: TypeChecker, ...anything: any[]) => LintWalker;
+    export interface SyntacticLintProviderStatic {
+        new (typescript: typeof ts, args: any): LintWalker;
+    }
+
+    export interface SemanticLintProviderStatic {
+        new (typescript: typeof ts, checker: TypeChecker, args: any): LintWalker;
+    }
 
     export const enum ExtensionKind {
         SyntacticLint,
-        SemanticLint
+        SemanticLint,
     }
 
     export interface ExtensionCollectionMap {
-        0?: SyntacticLintExtension[]
-        1?: SemanticLintExtension[]
-        [index: number]: (SyntacticLintExtension | SemanticLintExtension)[]
+        0?: SyntacticLintExtension[];
+        1?: SemanticLintExtension[];
+        [index: number]: Extension[] | undefined;
     }
 
     export interface ExtensionBase {
@@ -2877,12 +2890,14 @@ namespace ts {
         kind: ExtensionKind;
     }
 
+    // @kind(ExtensionKind.SyntacticLint)
     export interface SyntacticLintExtension extends ExtensionBase {
-        initializer: SyntacticLintConfigurator;
+        ctor: SyntacticLintProviderStatic;
     }
 
+    // @kind(ExtensionKind.SemanticLint)
     export interface SemanticLintExtension extends ExtensionBase {
-        initializer: SemanticLintConfigurator;
+        ctor: SemanticLintProviderStatic;
     }
 
     export type Extension = SyntacticLintExtension | SemanticLintExtension;
@@ -2912,7 +2927,7 @@ namespace ts {
          * This method is a companion for 'resolveModuleNames' and is used to resolve 'types' references to actual type declaration files
          */
         resolveTypeReferenceDirectives?(typeReferenceDirectiveNames: string[], containingFile: string): ResolvedTypeReferenceDirective[];
-        
+
         /**
          * Delegates the loading of compiler extensions to the compiler host.
          * The function should return the result of executing the code of an extension
