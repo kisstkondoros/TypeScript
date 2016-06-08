@@ -2873,15 +2873,18 @@ namespace ts {
         new (typescript: typeof ts, checker: TypeChecker, args: any): LintWalker;
     }
 
-    export const enum ExtensionKind {
-        SyntacticLint,
-        SemanticLint,
+    export namespace ExtensionKind {
+        export const SemanticLint: "semantic-lint" = "semantic-lint";
+        export type SemanticLint = "semantic-lint";
+        export const SyntacticLint: "syntactic-lint" = "syntactic-lint";
+        export type SyntacticLint = "syntactic-lint";
     }
+    export type ExtensionKind = ExtensionKind.SemanticLint | ExtensionKind.SyntacticLint;
 
     export interface ExtensionCollectionMap {
-        0?: SyntacticLintExtension[];
-        1?: SemanticLintExtension[];
-        [index: number]: Extension[] | undefined;
+        "syntactic-lint"?: SyntacticLintExtension[];
+        "semantic-lint"?: SemanticLintExtension[];
+        [index: string]: Extension[] | undefined;
     }
 
     export interface ExtensionBase {

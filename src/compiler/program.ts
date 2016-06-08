@@ -180,6 +180,39 @@ namespace ts {
         return undefined;
     }
 
+   function tryReadMainSection(packageJsonPath: string, baseDirectory: string, state: ModuleResolutionState): string {
+        let jsonContent: { main?: string };
+        try {
+            const jsonText = state.host.readFile(packageJsonPath);
+            jsonContent = jsonText ? <{ main?: string }>JSON.parse(jsonText) : {};
+        }
+        catch (e) {
+            // gracefully handle if readFile fails or returns not JSON
+            jsonContent = {};
+        }
+
+        let mainFile: string;
+
+        if (jsonContent.main) {
+            if (typeof jsonContent.main === "string") {
+                mainFile = jsonContent.main;
+            }
+            else {
+                if (state.traceEnabled) {
+                    trace(state.host, Diagnostics.Expected_type_of_0_field_in_package_json_to_be_string_got_1, "main", typeof jsonContent.main);
+                }
+            }
+        }
+        if (mainFile) {
+            const mainFilePath = normalizePath(combinePaths(baseDirectory, mainFile));
+            if (state.traceEnabled) {
+                trace(state.host, Diagnostics.package_json_has_0_field_1_that_references_2, "main", mainFile, mainFilePath);
+            }
+            return mainFilePath;
+        }
+        return undefined;
+    }
+
     const typeReferenceExtensions = [".d.ts"];
 
     /**
@@ -649,14 +682,14 @@ namespace ts {
         }
     }
 
-    function loadNodeModuleFromDirectory(extensions: string[], candidate: string, failedLookupLocation: string[], onlyRecordFailures: boolean, state: ModuleResolutionState): string {
+    function loadNodeModuleFromDirectory(extensions: string[], candidate: string, failedLookupLocation: string[], onlyRecordFailures: boolean, state: ModuleResolutionState, loadJS?: boolean): string {
         const packageJsonPath = combinePaths(candidate, "package.json");
         const directoryExists = !onlyRecordFailures && directoryProbablyExists(candidate, state.host);
         if (directoryExists && state.host.fileExists(packageJsonPath)) {
             if (state.traceEnabled) {
                 trace(state.host, Diagnostics.Found_package_json_at_0, packageJsonPath);
             }
-            const typesFile = tryReadTypesSection(packageJsonPath, candidate, state);
+            const typesFile = loadJS ? tryReadMainSection(packageJsonPath, candidate, state) : tryReadTypesSection(packageJsonPath, candidate, state);
             if (typesFile) {
                 const result = loadModuleFromFile(typesFile, extensions, failedLookupLocation, !directoryProbablyExists(getDirectoryPath(typesFile), state.host), state);
                 if (result) {
@@ -665,7 +698,7 @@ namespace ts {
             }
             else {
                 if (state.traceEnabled) {
-                    trace(state.host, Diagnostics.package_json_does_not_have_types_field);
+                    trace(state.host, Diagnostics.package_json_does_not_have_0_field, loadJS ? "main" : "types");
                 }
             }
         }
@@ -690,7 +723,7 @@ namespace ts {
         if (result) {
             return result;
         }
-        result = loadNodeModuleFromDirectory(extensionsSearched, candidate, failedLookupLocations, !nodeModulesFolderExists, state);
+        result = loadNodeModuleFromDirectory(extensionsSearched, candidate, failedLookupLocations, !nodeModulesFolderExists, state, loadJS);
         if (result) {
             return result;
         }
@@ -1139,14 +1172,19 @@ namespace ts {
                     error = new Error("Extension loading not implemented in compiler host.");
                 }
                 if (error) {
-                    programDiagnostics.add(createCompilerDiagnostic(Diagnostics.Extension_loading_failed_with_error_0, error));
+                    programDiagnostics.add(createCompilerDiagnostic(Diagnostics.Extension_loading_failed_with_error_0, error.stack ? `${error}
+                    Stack trace:
+                    ${error.stack}` : error));
                 }
                 return {name, result, error};
             }), res => !res.error), res => {
                 if (res.result) {
                     return reduceProperties(res.result, (aggregate: Extension[], potentialExtension: any, key: string) => {
+                        if (!potentialExtension) {
+                            return; // Avoid errors on explicitly exported null/undefined (why would someone do that, though?)
+                        }
                         const annotatedKind = potentialExtension.__tsCompilerExtensionKind;
-                        if (typeof annotatedKind === "number") {
+                        if (typeof annotatedKind === "string") {
                             const ext: ExtensionBase = {
                                 name: key !== "default" ? `${res.name}[${key}]` : res.name,
                                 args: extensionNames === extOptions ? undefined : (extOptions as Map<any>)[res.name],
@@ -1155,7 +1193,6 @@ namespace ts {
                             switch (ext.kind) {
                                 case ExtensionKind.SemanticLint:
                                 case ExtensionKind.SyntacticLint:
-                                case ExtensionKind.TypeProvider:
                                     if (typeof potentialExtension !== "function") {
                                         programDiagnostics.add(createCompilerDiagnostic(
                                             Diagnostics.Extension_0_exported_member_1_has_extension_kind_2_but_was_type_3_when_type_4_was_expected,
@@ -1167,7 +1204,7 @@ namespace ts {
                                         ));
                                         return;
                                     }
-                                    (ext as (SemanticLintExtension | SyntacticLintExtension | TypeProviderExtension)).ctor = potentialExtension;
+                                    (ext as (SemanticLintExtension | SyntacticLintExtension)).ctor = potentialExtension;
                             }
                             aggregate.push(ext as Extension);
                         }

@@ -2644,7 +2644,7 @@
         "category": "Message",
         "code": 6099
     },
-    "'package.json' does not have 'types' field.": {
+    "'package.json' does not have '{0}' field.": {
         "category": "Message",
         "code": 6100
     },
