@@ -48,7 +48,6 @@ namespace ts {
     declare var process: any;
     declare var global: any;
     declare var __filename: string;
-    declare var __dirname: string;
     declare var Buffer: {
         new (str: string, encoding?: string): any;
     };
