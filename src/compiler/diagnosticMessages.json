@@ -2784,10 +2784,6 @@
         "category": "Error",
         "code": 6134
     },
-    "({0}): {1}": {
-        "category": "Extension",
-        "code": 6135
-    },
 
     "Variable '{0}' implicitly has an '{1}' type.": {
         "category": "Error",

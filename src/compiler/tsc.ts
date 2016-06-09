@@ -115,7 +115,12 @@ namespace ts {
         }
 
         const category = DiagnosticCategory[diagnostic.category].toLowerCase();
-        output += `${ category } TS${ diagnostic.code }: ${ flattenDiagnosticMessageText(diagnostic.messageText, sys.newLine) }${ sys.newLine }`;
+        if (diagnostic.category === DiagnosticCategory.Extension) {
+            output += `${ category } ${ diagnostic.code }: ${ flattenDiagnosticMessageText(diagnostic.messageText, sys.newLine) }${ sys.newLine }`;
+        }
+        else {
+            output += `${ category } TS${ diagnostic.code }: ${ flattenDiagnosticMessageText(diagnostic.messageText, sys.newLine) }${ sys.newLine }`;
+        }
 
         sys.write(output);
     }

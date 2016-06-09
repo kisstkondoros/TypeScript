@@ -14,7 +14,7 @@ namespace ts {
             }
         }
 
-        function checkDiagnostics(diagnostics: Diagnostic[], expectedDiagnosticCodes?: number[]) {
+        function checkDiagnostics(diagnostics: Diagnostic[], expectedDiagnosticCodes?: (number | string)[]) {
             if (!expectedDiagnosticCodes) {
                 return;
             }
@@ -31,7 +31,7 @@ namespace ts {
         interface ExtensionTestOptions {
             compilerOptions: CompilerOptions;
             availableExtensions: string[];
-            expectedDiagnostics: number[]; // Extensions all use one diagnostic code right now - this needs to be mroe robust
+            expectedDiagnostics: (number | string)[];
         }
 
         const {content: libContent} = Harness.getDefaultLibraryFile(Harness.IO);
@@ -323,7 +323,7 @@ export class IsValueBar extends SemanticLintWalker {
                 "main.ts": `interface Foo {a; b;}`,
             }, {
                 availableExtensions: ["test-syntactic-lint"],
-                expectedDiagnostics: [6135],
+                expectedDiagnostics: ["test-syntactic-lint"],
                 compilerOptions: {
                     extensions: ["test-syntactic-lint"],
                     module: ModuleKind.CommonJS,
@@ -347,7 +347,7 @@ export class IsValueBar extends SemanticLintWalker {
                 "main.ts": `const s: "foo" = "foo";`,
             }, {
                 availableExtensions: ["test-semantic-lint"],
-                expectedDiagnostics: [6135],
+                expectedDiagnostics: ["test-semantic-lint"],
                 compilerOptions: {
                     extensions: ["test-semantic-lint"],
                     module: ModuleKind.CommonJS,
@@ -371,7 +371,7 @@ export class IsValueBar extends SemanticLintWalker {
                 "main.ts": `const s: "foo" = "foo";`,
             }, {
                 availableExtensions: ["test-syntactic-lint", "test-semantic-lint"],
-                expectedDiagnostics: [6135],
+                expectedDiagnostics: ["test-semantic-lint"],
                 compilerOptions: {
                     extensions: ["test-syntactic-lint", "test-semantic-lint"],
                     module: ModuleKind.CommonJS,
@@ -382,7 +382,19 @@ export class IsValueBar extends SemanticLintWalker {
                 "main.ts": `interface Foo {a; b;}`,
             }, {
                 availableExtensions: ["test-syntactic-lint", "test-semantic-lint"],
-                expectedDiagnostics: [6135],
+                expectedDiagnostics: ["test-syntactic-lint"],
+                compilerOptions: {
+                    extensions: ["test-syntactic-lint", "test-semantic-lint"],
+                    module: ModuleKind.CommonJS,
+                }
+            });
+
+            test({
+                "main.ts": `interface Foo {a; b;}
+                const s: "foo" = "foo";`,
+            }, {
+                availableExtensions: ["test-syntactic-lint", "test-semantic-lint"],
+                expectedDiagnostics: ["test-syntactic-lint", "test-semantic-lint"],
                 compilerOptions: {
                     extensions: ["test-syntactic-lint", "test-semantic-lint"],
                     module: ModuleKind.CommonJS,
@@ -395,7 +407,7 @@ export class IsValueBar extends SemanticLintWalker {
                 "main.ts": `interface Foo {a; b;}`,
             }, {
                 availableExtensions: ["test-extension-arguments"],
-                expectedDiagnostics: [6135, 6135],
+                expectedDiagnostics: ["test-extension-arguments", "test-extension-arguments"],
                 compilerOptions: {
                     extensions: {
                         "test-extension-arguments": ["a", "b"]
@@ -413,7 +425,7 @@ export class IsValueBar extends SemanticLintWalker {
                 let b: "bar" = "bar";`,
             }, {
                 availableExtensions: ["test-multi-extension"],
-                expectedDiagnostics: [6135, 6135, 6135, 6135],
+                expectedDiagnostics: ["test-multi-extension[IsNamedFoo]", "test-multi-extension[IsNamedBar]", "test-multi-extension[IsValueFoo]", "test-multi-extension[IsValueBar]"],
                 compilerOptions: {
                     extensions: ["test-multi-extension"],
                     module: ModuleKind.CommonJS,

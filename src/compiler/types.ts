@@ -2468,7 +2468,7 @@ namespace ts {
         length: number;
         messageText: string | DiagnosticMessageChain;
         category: DiagnosticCategory;
-        code: number;
+        code: number | string;
     }
 
     export enum DiagnosticCategory {

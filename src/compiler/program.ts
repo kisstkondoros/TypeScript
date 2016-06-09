@@ -1572,7 +1572,7 @@ namespace ts {
             }
 
             function error(err: string, node: Node) {
-                diagnostics.push(createDiagnosticForNode(node, Diagnostics._0_Colon_1, activeLint.name, err));
+                diagnostics.push(createExtensionDiagnosticForNode(node, activeLint.name, err));
             }
         }
 
