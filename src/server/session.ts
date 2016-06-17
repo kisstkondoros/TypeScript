@@ -2,6 +2,7 @@
 /// <reference path="..\services\services.ts" />
 /// <reference path="protocol.d.ts" />
 /// <reference path="editorServices.ts" />
+/// <reference path="..\services\quickfixes\quickFixRegistry.ts" />
 
 namespace ts.server {
     const spaceCache: string[] = [];
@@ -125,6 +126,7 @@ namespace ts.server {
         export const TypeDefinition = "typeDefinition";
         export const ProjectInfo = "projectInfo";
         export const ReloadProjects = "reloadProjects";
+        export const QuickFixes = "quickfix";
         export const Unknown = "unknown";
     }
 
@@ -433,6 +435,44 @@ namespace ts.server {
             }
 
             return projectInfo;
+        }
+
+        private getQuickFixes(fileName: string, line: number, offset: number): protocol.QuickFixResponseBody {
+            fileName = ts.normalizePath(fileName);
+
+            const possibleFixes: protocol.QuickFix[] = [];
+            const project = this.projectService.getProjectForFile(fileName);
+            const syntacticDiags = project.compilerService.languageService.getSyntacticDiagnostics(fileName);
+            const semanticDiags = project.compilerService.languageService.getSemanticDiagnostics(fileName);
+            const sourceFile = project.compilerService.languageService.getProgram().getSourceFile(fileName);
+
+            const positionNode = getTokenAtPosition(sourceFile, project.compilerService.host.lineOffsetToPosition(fileName, line, offset));
+            const diagnostics: Diagnostic[] = syntacticDiags.concat(semanticDiags).filter(diag => {
+                const isSameNode = diag.start == positionNode.getStart();
+                return isSameNode;
+            });
+
+            const param: ts.quickFix.QuickFixQueryInformation = {
+                project: project,
+                service: project.compilerService.languageService,
+                program: project.program,
+                typeChecker: project.program.getTypeChecker(),
+                sourceFile: sourceFile,
+                positionErrors: diagnostics
+            };
+
+            quickFixRegistry.QuickFixes.allQuickFixes.forEach(possibleQuickfix => {
+                try {
+                    possibleQuickfix.provideFix(param).forEach(fix => {
+                        if (fix && fix.display && fix.refactorings && fix.refactorings.length > 0) {
+                            possibleFixes.push({ display: fix.display, refactorings: fix.refactorings });
+                        }
+                    });
+                }
+                catch (error) {
+                }
+            });
+            return { quickFixes: possibleFixes };
         }
 
         private getRenameLocations(line: number, offset: number, fileName: string, findInComments: boolean, findInStrings: boolean): protocol.RenameResponseBody {
@@ -1042,6 +1082,10 @@ namespace ts.server {
             [CommandNames.Rename]: (request: protocol.Request) => {
                 const renameArgs = <protocol.RenameRequestArgs>request.arguments;
                 return { response: this.getRenameLocations(renameArgs.line, renameArgs.offset, renameArgs.file, renameArgs.findInComments, renameArgs.findInStrings), responseRequired: true };
+            },
+            [CommandNames.QuickFixes]: (request: protocol.Request) => {
+                const quickFixArgs = <protocol.FileLocationRequestArgs>request.arguments;
+                return { response: this.getQuickFixes(quickFixArgs.file, quickFixArgs.line, quickFixArgs.offset), responseRequired: true };
             },
             [CommandNames.Open]: (request: protocol.Request) => {
                 const openArgs = <protocol.OpenRequestArgs>request.arguments;

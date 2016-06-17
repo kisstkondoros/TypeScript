@@ -10,6 +10,7 @@
 /// <reference path='jsTyping.ts' />
 /// <reference path='formatting\formatting.ts' />
 /// <reference path='formatting\smartIndenter.ts' />
+/// <reference path='quickfixes\quickFixRegistry.ts' />
 
 namespace ts {
     /** The version of the language service API */

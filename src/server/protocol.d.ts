@@ -222,6 +222,20 @@ declare namespace ts.server.protocol {
         file: string;
     }
 
+    export interface SimpleTextSpan {
+        start: number;
+        length: number;
+    }
+
+    export class TextChange {
+        span: SimpleTextSpan;
+        newText: string;
+    }
+
+    export interface Refactoring extends TextChange {
+        filePath: string;
+    }
+
     /**
       * Definition response message.  Gives text range for definition.
       */
@@ -343,6 +357,21 @@ declare namespace ts.server.protocol {
         findInStrings?: boolean;
     }
 
+    export interface QuickFixRequest extends FileLocationRequest {
+    }
+
+    export interface QuickFixResponse extends Response {
+        body?: QuickFixResponseBody;
+    }
+
+    export interface QuickFix {
+      display: string;
+      refactorings: Refactoring[];
+    }
+
+    export interface QuickFixResponseBody {
+        quickFixes?: QuickFix[];
+    }
 
     /**
       * Rename request; value of command field is "rename". Return
